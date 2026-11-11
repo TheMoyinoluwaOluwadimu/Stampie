@@ -1,10 +1,11 @@
 import { useEffect, useRef, useState } from 'react'
+import './motion.css'
 import { PALETTES, DEFAULTS, W, H, render, cropArt, buildSVG, demoImage } from './engine.js'
 
 function Slider({ label, k, p, set, min, max, step = 1 }) {
   return (
     <>
-      <div className="row"><span>{label}</span><b>{p[k]}</b></div>
+      <div className="row"><span>{label}</span><b key={p[k]} className="bump">{p[k]}</b></div>
       <input type="range" min={min} max={max} step={step} value={p[k]} onChange={(e) => set(k, +e.target.value)} />
     </>
   )
@@ -16,15 +17,31 @@ function ColorField({ label, k, p, set }) {
   )
 }
 
-function CanvasView({ source, label }) {
+function CanvasView({ source, label, busy }) {
   const ref = useRef(null)
+  const first = useRef(true)
   useEffect(() => {
     if (!source || !ref.current) return
     const c = ref.current
     c.width = source.width; c.height = source.height
     c.getContext('2d').drawImage(source, 0, 0)
+    // Reveal like a print coming off the press: wipe down + settle
+    if (window.matchMedia('(prefers-reduced-motion: reduce)').matches || !c.animate) return
+    const intro = first.current
+    first.current = false
+    c.animate(
+      intro
+        ? [{ clipPath: 'inset(0 0 100% 0)', opacity: 0.4, transform: 'scale(.985)' }, { clipPath: 'inset(0 0 0% 0)', opacity: 1, transform: 'scale(1)' }]
+        : [{ clipPath: 'inset(0 0 100% 0)', opacity: 0.7 }, { clipPath: 'inset(0 0 0% 0)', opacity: 1 }],
+      { duration: intro ? 700 : 450, easing: 'cubic-bezier(.2,.7,.2,1)' }
+    )
   }, [source])
-  return <canvas ref={ref} aria-label={label} />
+  return (
+    <div className={'view' + (busy ? ' busy' : '')}>
+      <canvas ref={ref} aria-label={label} />
+      <div className="pill" role="status" aria-live="polite"><i className="spin" />Rendering…</div>
+    </div>
+  )
 }
 
 function save(blob, name) {
@@ -42,6 +59,8 @@ export default function App() {
   const [busy, setBusy] = useState(false)
   const [scope, setScope] = useState('art')
   const [fmt, setFmt] = useState('PNG')
+  const [saved, setSaved] = useState(false)
+  const [over, setOver] = useState(false)
   const set = (k, v) => setP((o) => ({ ...o, [k]: v }))
 
   useEffect(() => { demoImage().then(setImg) }, [])
@@ -68,6 +87,7 @@ export default function App() {
 
   const download = async () => {
     if (!res) return
+    setSaved(true); setTimeout(() => setSaved(false), 1600)
     const poster = scope === 'poster'
     const base = poster ? 'stampie-poster' : 'stampie-art'
     if (fmt === 'SVG') {
@@ -92,15 +112,17 @@ export default function App() {
       <aside className="panel">
         <h1>Stampie</h1>
         <p className="s">Turn any image into a wavy engraved line print with a colour blend.</p>
-        <label className="drop" onDragOver={(e) => e.preventDefault()} onDrop={(e) => { e.preventDefault(); load(e.dataTransfer.files[0]) }}>
+        <label className={'drop' + (over ? ' over' : '')} onDragOver={(e) => { e.preventDefault(); setOver(true) }} onDragLeave={() => setOver(false)} onDrop={(e) => { e.preventDefault(); setOver(false); load(e.dataTransfer.files[0]) }}>
           Tap to choose an image, or drop one here
           <input type="file" accept="image/*" hidden onChange={(e) => load(e.target.files[0])} />
         </label>
 
         <h2>Palettes</h2>
         <div className="pre">
-          {Object.entries(PALETTES).map(([name, c]) => (
-            <button key={name} onClick={() => setP((o) => ({ ...o, c1: c[0], c2: c[1], c3: c[2], c4: c[3] }))}>{name}</button>
+          {Object.entries(PALETTES).map(([name, c], i) => (
+            <button key={name} className="pal" style={{ '--i': i }} onClick={() => setP((o) => ({ ...o, c1: c[0], c2: c[1], c3: c[2], c4: c[3] }))}>
+              <span className="dots">{c.map((x) => <i key={x} style={{ background: x }} />)}</span>{name}
+            </button>
           ))}
         </div>
         <div className="cols">
@@ -161,15 +183,15 @@ export default function App() {
             </select>
           </label>
         </div>
-        <button className="dl" onClick={download} disabled={!res}>Download</button>
+        <button className={'dl' + (saved ? ' ok' : '')} onClick={download} disabled={!res}>{saved ? '✓ Saved' : 'Download'}</button>
       </aside>
 
       <main className="stage">
-        {busy && <span className="hint">Rendering…</span>}
-        {res && <CanvasView source={res.poster.canvas} label="Poster preview" />}
+        <div className={'bar' + (busy ? ' on' : '')} aria-hidden="true" />
+        {res && <CanvasView source={res.poster.canvas} label="Poster preview" busy={busy} />}
         <span className="hint">Poster preview ({W}×{H} base size)</span>
         <h2>Art only (transparent)</h2>
-        <div className="chk-bg">{res && <CanvasView source={res.crop} label="Art only" />}</div>
+        <div className="chk-bg">{res && <CanvasView source={res.crop} label="Art only" busy={busy} />}</div>
         <span className="hint">The checkerboard is only a preview and is not saved.</span>
       </main>
     </div>
