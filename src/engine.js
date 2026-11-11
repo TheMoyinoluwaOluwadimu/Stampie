@@ -14,7 +14,7 @@ export const PALETTES = {
 }
 
 export const DEFAULTS = {
-  c1: '#0f3fa8', c2: '#4a74d4', c3: '#f7f4ee', c4: '#1250c8',
+  c1: '#0f3fa8', c2: '#4a74d4', c3: '#f7f4ee', c4: '#1250c8', c5: '#f7f4ee',
   tint: 12, sp: 3.5, wt: 100, dt: 60, am: 5, fr: 70, tl: 30, wp: 70, an: 0,
   br: 0, co: 130, inv: false, frame: true, quality: 2, np: false, cs: 'wave',
 }
@@ -72,9 +72,8 @@ export function render(img, p, transparent) {
   const meta = { ox, oy, w, h2, m, fm, tint: p.tint / 100, a: (p.an * Math.PI) / 180 }
 
   const noPaper = transparent && p.np
-  ctx.fillStyle = p.c3
-  if (fm && !noPaper) ctx.fillRect(...bounds)
-  if (!noPaper) ctx.fillRect(ox, oy, w, h2)
+  if (fm && !noPaper) { ctx.fillStyle = p.c5; ctx.fillRect(...bounds) }
+  if (!noPaper) { ctx.fillStyle = p.c3; ctx.fillRect(ox, oy, w, h2) }
 
   // Luminance map at render resolution
   const t = document.createElement('canvas')
@@ -195,7 +194,7 @@ export function buildSVG(res, p, poster) {
   }
   const vb = poster ? [0, 0, W, H] : BX
   const paper = p.np ? '' :
-    (M.fm ? `<rect x="${M.ox - M.m}" y="${M.oy - M.m}" width="${M.w + 2 * M.m}" height="${M.h2 + 2 * M.m}" fill="${p.c3}"/>` : '') +
+    (M.fm ? `<rect x="${M.ox - M.m}" y="${M.oy - M.m}" width="${M.w + 2 * M.m}" height="${M.h2 + 2 * M.m}" fill="${p.c5}"/>` : '') +
     `<rect x="${M.ox}" y="${M.oy}" width="${M.w}" height="${M.h2}" fill="${p.c3}"/>`
   const tintEl = tint && M.tint > 0 ? `<image x="${M.ox}" y="${M.oy}" width="${M.w}" height="${M.h2}" opacity="${M.tint}" href="${tint}"/>` : ''
   const body = paths.map((q) => `<path fill="${q[0]}" d="${q[1]}"/>`).join('')

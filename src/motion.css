@@ -52,3 +52,16 @@ button:hover:not(:disabled),select:hover,input[type=color]:hover{box-shadow:0 2p
   *,*::before,*::after{animation-duration:.01ms!important;animation-iteration-count:1!important;transition-duration:.01ms!important}
   .bar::after{display:none}
 }
+
+/* Help tooltips */
+@keyframes tipin{0%{opacity:0;scale:.55;translate:0 8px}60%{opacity:1}100%{opacity:1;scale:1;translate:0 0}}
+.tip{display:inline-flex;align-items:center;justify-content:center;width:14px;height:14px;margin-left:6px;border:1px solid var(--bd);border-radius:50%;
+  font:400 9px/1 Georgia,serif;text-transform:none;letter-spacing:0;color:var(--mut);cursor:help;opacity:.7;vertical-align:middle;user-select:none;
+  transition:color .15s,background-color .15s,border-color .15s,opacity .15s}
+.tip:hover,.tip:focus-visible{color:var(--ac);border-color:var(--ac);opacity:1}
+.tip-pop{position:fixed;z-index:100;width:240px;padding:14px 16px;border-radius:14px;background:#413d4b;color:#f1f0f5;
+  font:400 13px/1.55 system-ui,sans-serif;text-transform:none;letter-spacing:0;text-align:left;box-shadow:0 10px 28px #0005;pointer-events:none;transform-origin:var(--ax) 100%;animation:tipin .32s cubic-bezier(.34,1.56,.64,1)}
+.tip-pop b{display:block;color:#fff;font-size:14px;font-weight:700;margin-bottom:2px}
+.tip-pop::after{content:"";position:absolute;left:var(--ax);bottom:-6px;width:12px;height:12px;background:#413d4b;border-radius:2px;transform:translateX(-50%) rotate(45deg)}
+.tip-pop.down{transform-origin:var(--ax) 0}
+.tip-pop.down::after{bottom:auto;top:-6px}

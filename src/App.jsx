@@ -1,19 +1,43 @@
 import { useEffect, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 import './motion.css'
 import { PALETTES, DEFAULTS, W, H, render, cropArt, buildSVG, demoImage } from './engine.js'
 
-function Slider({ label, k, p, set, min, max, step = 1 }) {
+function Tip({ text, title }) {
+  const [pos, setPos] = useState(null)
+  const show = (e) => {
+    const r = e.currentTarget.getBoundingClientRect()
+    const cx = r.left + r.width / 2
+    const left = Math.min(Math.max(8, cx - 120), window.innerWidth - 248)
+    const up = r.top > 150
+    setPos({ left, top: up ? r.top - 12 : r.bottom + 12, transform: up ? 'translateY(-100%)' : undefined, '--ax': cx - left + 'px', down: !up })
+  }
+  const hide = () => setPos(null)
+  const { down, ...style } = pos || {}
+  return (
+    <span
+      className="tip" tabIndex={0} role="img" aria-label={(title ? title + ': ' : '') + text}
+      onMouseEnter={show} onMouseLeave={hide} onFocus={show} onBlur={hide}
+      onClick={(e) => { e.preventDefault(); e.stopPropagation(); pos ? hide() : show(e) }}
+      onKeyDown={(e) => e.key === 'Escape' && hide()}
+    >i{pos && createPortal(
+      <span className={'tip-pop' + (down ? ' down' : '')} style={style}>{title && <b>{title}</b>}{text}</span>,
+      document.body)}</span>
+  )
+}
+
+function Slider({ label, tip, k, p, set, min, max, step = 1 }) {
   return (
     <>
-      <div className="row"><span>{label}</span><b key={p[k]} className="bump">{p[k]}</b></div>
+      <div className="row"><span>{label}{tip && <Tip title={label.replace(/s*(.*)/, '')} text={tip} />}</span><b key={p[k]} className="bump">{p[k]}</b></div>
       <input type="range" min={min} max={max} step={step} value={p[k]} onChange={(e) => set(k, +e.target.value)} />
     </>
   )
 }
 
-function ColorField({ label, k, p, set }) {
+function ColorField({ label, tip, k, p, set }) {
   return (
-    <label>{label}<input type="color" value={p[k]} onChange={(e) => set(k, e.target.value)} /></label>
+    <label><span>{label}{tip && <Tip title={label} text={tip} />}</span><input type="color" value={p[k]} onChange={(e) => set(k, e.target.value)} /></label>
   )
 }
 
@@ -117,28 +141,29 @@ export default function App() {
           <input type="file" accept="image/*" hidden onChange={(e) => load(e.target.files[0])} />
         </label>
 
-        <h2>Palettes</h2>
+        <h2>Palettes<Tip title="Palettes" text="One-click colour sets. They fill in all the colour pickers below, which you can still adjust." /></h2>
         <div className="pre">
           {Object.entries(PALETTES).map(([name, c], i) => (
-            <button key={name} className="pal" style={{ '--i': i }} onClick={() => setP((o) => ({ ...o, c1: c[0], c2: c[1], c3: c[2], c4: c[3] }))}>
+            <button key={name} className="pal" style={{ '--i': i }} onClick={() => setP((o) => ({ ...o, c1: c[0], c2: c[1], c3: c[2], c4: c[3], c5: c[2] }))}>
               <span className="dots">{c.map((x) => <i key={x} style={{ background: x }} />)}</span>{name}
             </button>
           ))}
         </div>
         <div className="cols">
-          <ColorField label="Line shadows" k="c1" p={p} set={set} />
-          <ColorField label="Line highlights" k="c2" p={p} set={set} />
-          <ColorField label="Paper" k="c3" p={p} set={set} />
-          <ColorField label="Background" k="c4" p={p} set={set} />
+          <ColorField label="Line shadows" tip="Colour of the thickest, darkest parts of the lines (the shadows in your image)." k="c1" p={p} set={set} />
+          <ColorField label="Line highlights" tip="Colour of the thinnest, lightest parts of the lines (the highlights). Lines blend between this and the shadow colour." k="c2" p={p} set={set} />
+          <ColorField label="Paper" tip="Colour of the paper behind the lines, inside the picture area." k="c3" p={p} set={set} />
+          <ColorField label="Border paper" tip="Colour of the stamp border only. It does not change the art or the tint." k="c5" p={p} set={set} />
+          <ColorField label="Background" tip="Colour behind the whole stamp. It also shows through the perforation holes." k="c4" p={p} set={set} />
         </div>
-        <Slider label="Photo tint (colour blend)" k="tint" p={p} set={set} min={0} max={100} />
+        <Slider label="Photo tint (colour blend)" tip="Fades a colour version of your photo in under the lines. 0 is lines only, higher adds more colour blend." k="tint" p={p} set={set} min={0} max={100} />
 
         <h2>Lines and halftone</h2>
-        <Slider label="Line spacing (lower = finer)" k="sp" p={p} set={set} min={1.5} max={14} step={0.5} />
-        <Slider label="Line weight" k="wt" p={p} set={set} min={20} max={150} />
-        <Slider label="Detail sharpening" k="dt" p={p} set={set} min={0} max={100} />
+        <Slider label="Line spacing (lower = finer)" tip="Distance between lines. Lower numbers give finer, more detailed lines but take longer to render." k="sp" p={p} set={set} min={1.5} max={14} step={0.5} />
+        <Slider label="Line weight" tip="How thick the lines get. Dark areas of the image get thicker lines, light areas thinner." k="wt" p={p} set={set} min={20} max={150} />
+        <Slider label="Detail sharpening" tip="Sharpens edges in your image before the lines are drawn so small details stand out more." k="dt" p={p} set={set} min={0} max={100} />
         <div className="cols">
-          <label>Curve style
+          <label><span>Curve style<Tip title="Curve style" text="Shape of the lines: Wave is smooth, Ripple adds a second wave, Flowing drifts more freely, Straight has no waves." /></span>
             <select value={p.cs} onChange={(e) => set('cs', e.target.value)}>
               <option value="wave">Wave</option>
               <option value="ripple">Ripple</option>
@@ -147,19 +172,19 @@ export default function App() {
             </select>
           </label>
         </div>
-        <Slider label="Wave amount" k="am" p={p} set={set} min={0} max={20} step={0.5} />
-        <Slider label="Wave frequency" k="fr" p={p} set={set} min={2} max={160} />
-        <Slider label="Ripple tilt (diagonal movement)" k="tl" p={p} set={set} min={-100} max={100} />
-        <Slider label="Image warp" k="wp" p={p} set={set} min={0} max={200} />
-        <Slider label="Angle" k="an" p={p} set={set} min={-90} max={90} />
+        <Slider label="Wave amount" tip="How tall the waves are. 0 gives straight lines." k="am" p={p} set={set} min={0} max={20} step={0.5} />
+        <Slider label="Wave frequency" tip="How tightly packed the waves are along each line. Higher means more, smaller waves." k="fr" p={p} set={set} min={2} max={160} />
+        <Slider label="Ripple tilt (diagonal movement)" tip="Slants the wave pattern from line to line so the ripples move diagonally. 0 is no slant." k="tl" p={p} set={set} min={-100} max={100} />
+        <Slider label="Image warp" tip="Bends the lines to follow the shapes in your image, giving a 3D feel." k="wp" p={p} set={set} min={0} max={200} />
+        <Slider label="Angle" tip="Rotates the whole line pattern, in degrees." k="an" p={p} set={set} min={-90} max={90} />
 
         <h2>Image</h2>
-        <Slider label="Brightness" k="br" p={p} set={set} min={-50} max={50} />
-        <Slider label="Contrast" k="co" p={p} set={set} min={50} max={250} />
-        <label className="chk"><input type="checkbox" checked={p.inv} onChange={(e) => set('inv', e.target.checked)} /> Invert</label>
-        <label className="chk"><input type="checkbox" checked={p.frame} onChange={(e) => set('frame', e.target.checked)} /> Stamp frame with perforations</label>
+        <Slider label="Brightness" tip="Makes the image lighter or darker before the lines are drawn." k="br" p={p} set={set} min={-50} max={50} />
+        <Slider label="Contrast" tip="Increases the difference between light and dark. Higher gives bolder, more graphic results." k="co" p={p} set={set} min={50} max={250} />
+        <label className="chk"><input type="checkbox" checked={p.inv} onChange={(e) => set('inv', e.target.checked)} /> Invert<Tip title="Invert" text="Swaps light and dark, so bright areas get thick lines instead of thin ones." /></label>
+        <label className="chk"><input type="checkbox" checked={p.frame} onChange={(e) => set('frame', e.target.checked)} /> Stamp frame with perforations<Tip title="Stamp frame" text="Adds a paper border with punched holes around the edge, like a postage stamp." /></label>
         <div className="cols">
-          <label>Render quality
+          <label><span>Render quality<Tip title="Render quality" text="Higher quality makes sharper output but renders slower. Use Standard while editing, Ultra for the final export." /></span>
             <select value={p.quality} onChange={(e) => set('quality', +e.target.value)}>
               <option value={1}>Standard</option>
               <option value={2}>High (2×)</option>
@@ -169,15 +194,15 @@ export default function App() {
         </div>
 
         <h2>Export</h2>
-        <label className="chk"><input type="checkbox" checked={p.np} onChange={(e) => set('np', e.target.checked)} /> Transparent paper (lines only)</label>
+        <label className="chk"><input type="checkbox" checked={p.np} onChange={(e) => set('np', e.target.checked)} /> Transparent paper (lines only)<Tip title="Transparent paper" text="Removes the paper so only the lines are exported, with a see-through background. Works with PNG, WebP and SVG." /></label>
         <div className="cols">
-          <label>Scope
+          <label><span>Scope<Tip title="Scope" text="Art only exports just the stamp. Full poster includes the background around it." /></span>
             <select value={scope} onChange={(e) => setScope(e.target.value)}>
               <option value="art">Art only</option>
               <option value="poster">Full poster</option>
             </select>
           </label>
-          <label>Format
+          <label><span>Format<Tip title="Format" text="PNG and WebP keep transparency. JPG is smallest but has no transparency. SVG is vector and scales without losing quality." /></span>
             <select value={fmt} onChange={(e) => setFmt(e.target.value)}>
               <option>PNG</option><option>SVG</option><option>WebP</option><option>JPG</option>
             </select>
