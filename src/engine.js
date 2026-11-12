@@ -1,6 +1,13 @@
 // Stampie rendering engine: turns an image into an engraved wavy-line print.
 // Pure canvas code, no dependencies.
 
+import { TEXT_DEFAULTS, textBands, layoutText, drawText, svgText } from './text.js'
+
+// Canvas that works on the page and inside the render worker.
+export const mk = (w, h) => {
+  if (typeof document === 'undefined') return new OffscreenCanvas(w, h)
+  const c = document.createElement('canvas'); c.width = w; c.height = h; return c
+}
 export const W = 1080
 export const H = 1350
 const NB = 32 // number of colour steps between shadow and highlight
@@ -17,6 +24,7 @@ export const DEFAULTS = {
   c1: '#0f3fa8', c2: '#4a74d4', c3: '#f7f4ee', c4: '#1250c8', c5: '#f7f4ee',
   tint: 12, sp: 3.5, wt: 100, dt: 60, am: 5, fr: 70, tl: 30, wp: 70, an: 0,
   br: 0, co: 130, inv: false, frame: true, quality: 2, np: false, cs: 'wave',
+  ...TEXT_DEFAULTS,
 }
 
 const hex = (h) => [1, 3, 5].map((i) => parseInt(h.slice(i, i + 2), 16))
@@ -57,30 +65,35 @@ function blur(a, w, h, r) {
  */
 export function render(img, p, transparent) {
   const S = p.quality
-  const cv = document.createElement('canvas')
-  cv.width = W * S; cv.height = H * S
+  const cv = mk(W * S, H * S)
   const ctx = cv.getContext('2d', { willReadFrequently: true })
   ctx.setTransform(S, 0, 0, S, 0, 0)
   const s = hex(p.c1), h = hex(p.c2)
   if (!transparent) { ctx.fillStyle = p.c4; ctx.fillRect(0, 0, W, H) }
 
-  const fm = p.frame, m = fm ? 46 : 0, mx = fm ? 600 : 920, my = fm ? 780 : 1200
-  const k = Math.min(mx / img.width, my / img.height)
-  const w = Math.round(img.width * k), h2 = Math.round(img.height * k)
-  const ox = Math.round((W - w) / 2), oy = Math.round((H - h2) / 2)
-  const bounds = [ox - m, oy - m, w + 2 * m, h2 + 2 * m]
-  const meta = { ox, oy, w, h2, m, fm, tint: p.tint / 100, a: (p.an * Math.PI) / 180 }
+  const fm = p.frame, m = fm ? 46 : 0, mx = fm ? 600 : 920
+  const { bt, bb } = textBands(p, m) // extra paper reserved for text above/below the art
+  // The stamp keeps the same width with or without text. Text only takes height, so the picture
+  // is cropped (centred) to the shorter art box instead of being scaled down.
+  const k = Math.min(mx / img.width, (fm ? 780 : 1200) / img.height)
+  const w = Math.round(img.width * k), h0 = Math.round(img.height * k)
+  const h2 = Math.max(Math.round(h0 * 0.45), h0 - bt - bb)
+  const ox = Math.round((W - w) / 2)
+  const oy = Math.round((H - (h2 + 2 * m + bt + bb)) / 2) + m + bt
+  const bounds = [ox - m, oy - m - bt, w + 2 * m, h2 + 2 * m + bt + bb]
+  const meta = { ox, oy, w, h2, m, fm, bt, bb, tint: p.tint / 100, a: (p.an * Math.PI) / 180 }
 
   const noPaper = transparent && p.np
-  if (fm && !noPaper) { ctx.fillStyle = p.c5; ctx.fillRect(...bounds) }
+  if ((fm || bt + bb > 0) && !noPaper) { ctx.fillStyle = p.c5; ctx.fillRect(...bounds) }
   if (!noPaper) { ctx.fillStyle = p.c3; ctx.fillRect(ox, oy, w, h2) }
 
   // Luminance map at render resolution
-  const t = document.createElement('canvas')
   const nw = w * S, nh = h2 * S
-  t.width = nw; t.height = nh
+  const t = mk(nw, nh)
   const tc = t.getContext('2d')
-  tc.drawImage(img, 0, 0, nw, nh)
+  const cover = Math.max(nw / img.width, nh / img.height)
+  const sw = nw / cover, sh = nh / cover
+  tc.drawImage(img, (img.width - sw) / 2, (img.height - sh) / 2, sw, sh, 0, 0, nw, nh)
   const d = tc.getImageData(0, 0, nw, nh).data
   const L = new Float32Array(nw * nh)
   for (let i = 0; i < L.length; i++) L[i] = (0.299 * d[i * 4] + 0.587 * d[i * 4 + 1] + 0.114 * d[i * 4 + 2]) / 255
@@ -97,7 +110,7 @@ export function render(img, p, transparent) {
   }
 
   // Colour-blend photo tint under the lines
-  let tintURL = null
+  let tintURL = null, tintSrc = null
   if (p.tint > 0) {
     const id = tc.createImageData(nw, nh)
     for (let i = 0; i < L.length; i++) {
@@ -105,7 +118,8 @@ export function render(img, p, transparent) {
       id.data[i * 4] = c[0]; id.data[i * 4 + 1] = c[1]; id.data[i * 4 + 2] = c[2]; id.data[i * 4 + 3] = 255
     }
     tc.putImageData(id, 0, 0)
-    tintURL = t.toDataURL('image/jpeg', 0.85)
+    if (t.toDataURL) tintURL = t.toDataURL('image/jpeg', 0.85)
+    else tintSrc = t // worker: the page encodes it
     ctx.globalAlpha = meta.tint
     ctx.drawImage(t, ox, oy, w, h2)
     ctx.globalAlpha = 1
@@ -160,6 +174,10 @@ export function render(img, p, transparent) {
   })
   ctx.restore()
 
+  // Text
+  const text = layoutText(ctx, p, meta, bounds)
+  drawText(ctx, text)
+
   // Perforations
   if (fm) {
     if (transparent) ctx.globalCompositeOperation = 'destination-out'
@@ -170,31 +188,30 @@ export function render(img, p, transparent) {
     for (let i = 0; i <= ny; i++) { const y = y0 + (i * hh) / ny; for (const x of [x0, x0 + ww]) { ctx.beginPath(); ctx.arc(x, y, 9, 0, 7); ctx.fill() } }
     ctx.globalCompositeOperation = 'source-over'
   }
-  return { canvas: cv, bounds, meta, paths: colored, tint: tintURL, S }
+  return { canvas: cv, bounds, meta, paths: colored, tint: tintURL, tintSrc, S, text }
 }
 
 /** Crop a transparent render to just the stamp. */
 export function cropArt(res) {
   const { canvas, bounds, S } = res
-  const c = document.createElement('canvas')
-  c.width = bounds[2] * S; c.height = bounds[3] * S
+  const c = mk(bounds[2] * S, bounds[3] * S)
   c.getContext('2d').drawImage(canvas, bounds[0] * S, bounds[1] * S, c.width, c.height, 0, 0, c.width, c.height)
   return c
 }
 
 /** Build a true vector SVG from a transparent render. */
 export function buildSVG(res, p, poster) {
-  const { meta: M, bounds: BX, paths, tint } = res
+  const { meta: M, bounds: BX, paths, tint, text } = res
   let holes = ''
   if (M.fm) {
-    const st = 26, x0 = M.ox - M.m, y0 = M.oy - M.m, ww = M.w + 2 * M.m, hh = M.h2 + 2 * M.m
+    const st = 26, [x0, y0, ww, hh] = BX
     const nx = Math.round(ww / st), ny = Math.round(hh / st)
     for (let i = 0; i <= nx; i++) { const x = f(x0 + (i * ww) / nx); holes += `<circle cx="${x}" cy="${y0}" r="9"/><circle cx="${x}" cy="${y0 + hh}" r="9"/>` }
     for (let i = 0; i <= ny; i++) { const y = f(y0 + (i * hh) / ny); holes += `<circle cx="${x0}" cy="${y}" r="9"/><circle cx="${x0 + ww}" cy="${y}" r="9"/>` }
   }
   const vb = poster ? [0, 0, W, H] : BX
   const paper = p.np ? '' :
-    (M.fm ? `<rect x="${M.ox - M.m}" y="${M.oy - M.m}" width="${M.w + 2 * M.m}" height="${M.h2 + 2 * M.m}" fill="${p.c5}"/>` : '') +
+    (M.fm || M.bt + M.bb > 0 ? `<rect x="${BX[0]}" y="${BX[1]}" width="${BX[2]}" height="${BX[3]}" fill="${p.c5}"/>` : '') +
     `<rect x="${M.ox}" y="${M.oy}" width="${M.w}" height="${M.h2}" fill="${p.c3}"/>`
   const tintEl = tint && M.tint > 0 ? `<image x="${M.ox}" y="${M.oy}" width="${M.w}" height="${M.h2}" opacity="${M.tint}" href="${tint}"/>` : ''
   const body = paths.map((q) => `<path fill="${q[0]}" d="${q[1]}"/>`).join('')
@@ -202,7 +219,7 @@ export function buildSVG(res, p, poster) {
     (poster ? `<rect width="${W}" height="${H}" fill="${p.c4}"/>` : '') +
     `<defs><clipPath id="c"><rect x="${M.ox}" y="${M.oy}" width="${M.w}" height="${M.h2}"/></clipPath>` +
     `<mask id="m" maskUnits="userSpaceOnUse" x="${BX[0]}" y="${BX[1]}" width="${BX[2]}" height="${BX[3]}"><rect x="${BX[0]}" y="${BX[1]}" width="${BX[2]}" height="${BX[3]}" fill="#fff"/><g fill="#000">${holes}</g></mask></defs>` +
-    `<g mask="url(#m)">${paper}${tintEl}<g clip-path="url(#c)"><g transform="translate(${f(M.ox + M.w / 2)} ${f(M.oy + M.h2 / 2)}) rotate(${f((M.a * 180) / Math.PI)})">${body}</g></g></g></svg>`
+    `<g mask="url(#m)">${paper}${tintEl}<g clip-path="url(#c)"><g transform="translate(${f(M.ox + M.w / 2)} ${f(M.oy + M.h2 / 2)}) rotate(${f((M.a * 180) / Math.PI)})">${body}</g></g>${svgText(text)}</g></svg>`
 }
 
 /** Placeholder image shown before the user uploads one. */

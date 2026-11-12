@@ -1,6 +1,9 @@
-import { useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
+import { AsciiReveal, AsciiSkeleton } from 'ascii-reveal'
 import './motion.css'
+import { renderAsync } from './renderClient.js'
+import { FONTS, LAYOUTS } from './text.js'
 import { PALETTES, DEFAULTS, W, H, render, cropArt, buildSVG, demoImage } from './engine.js'
 
 function Tip({ text, title }) {
@@ -41,30 +44,45 @@ function ColorField({ label, tip, k, p, set }) {
   )
 }
 
-function CanvasView({ source, label, busy }) {
-  const ref = useRef(null)
-  const first = useRef(true)
-  useEffect(() => {
-    if (!source || !ref.current) return
-    const c = ref.current
+// Tiny diagrams of where text goes in each layout
+const bar = (x, y, w, h) => <rect key={[x, y, w, h].join()} x={x} y={y} width={w} height={h} rx=".6" className="bar" />
+const SCHEMATIC = {
+  none: [<rect key="a" x="4" y="4" width="22" height="30" className="art" />],
+  caption: [<rect key="a" x="4" y="4" width="22" height="24" className="art" />, bar(8, 30.5, 14, 2.5)],
+  classic: [<rect key="a" x="4" y="11" width="22" height="17" className="art" />, bar(4, 4, 10, 2), bar(4, 7, 7, 1.2), bar(19, 4, 7, 4), bar(4, 31, 9, 2)],
+  tabs: [<rect key="a" x="3" y="3" width="24" height="32" className="art" />, bar(3, 3, 11, 5), bar(17, 29, 10, 6)],
+  modern: [<rect key="a" x="4" y="11" width="22" height="15" className="art" />, bar(4, 4, 12, 2.5), bar(4, 7.5, 8, 1.2), bar(4, 29, 12, 6), bar(19, 32, 7, 1.5)],
+}
+function Schematic({ id }) {
+  return (
+    <svg viewBox="0 0 30 38" width="30" height="38" aria-hidden="true">
+      <rect x=".5" y=".5" width="29" height="37" rx="2" className="o" />{SCHEMATIC[id]}
+    </svg>
+  )
+}
+
+// Preview with the ascii-reveal loading pattern: an ASCII skeleton holds the space while it renders,
+// then the finished image decodes in through the character grid.
+// `ratio` is width/height; `art` sizes the skeleton to the smaller art-only preview.
+function Preview({ source, label, busy, ratio: initial, art }) {
+  const ratio = source ? source.width / source.height : initial
+  // Draw in the ref callback (not an effect) so the pixels exist before ascii-reveal measures the canvas.
+  const draw = useCallback((c) => {
+    if (!c || !source) return
     c.width = source.width; c.height = source.height
     c.getContext('2d').drawImage(source, 0, 0)
-    // Reveal like a print coming off the press: wipe down + settle
-    if (window.matchMedia('(prefers-reduced-motion: reduce)').matches || !c.animate) return
-    const intro = first.current
-    first.current = false
-    c.animate(
-      intro
-        ? [{ clipPath: 'inset(0 0 100% 0)', opacity: 0.4, transform: 'scale(.985)' }, { clipPath: 'inset(0 0 0% 0)', opacity: 1, transform: 'scale(1)' }]
-        : [{ clipPath: 'inset(0 0 100% 0)', opacity: 0.7 }, { clipPath: 'inset(0 0 0% 0)', opacity: 1 }],
-      { duration: intro ? 700 : 450, easing: 'cubic-bezier(.2,.7,.2,1)' }
-    )
   }, [source])
+  const showSkel = busy || !source
   return (
-    <div className={'view' + (busy ? ' busy' : '')}>
-      <canvas ref={ref} aria-label={label} />
-      <div className="pill" role="status" aria-live="polite"><i className="spin" />Rendering…</div>
-    </div>
+    <AsciiReveal className="reveal" preset="dither" loading={showSkel} shimmer={false} fallback={false}>
+      {showSkel ? (
+        <div className={'skelbox' + (art ? ' art' : '')} style={{ '--r': ratio }} role="status" aria-label="Rendering">
+          <AsciiSkeleton variant="dither" rows={90} width="100%" height="100%" />
+        </div>
+      ) : (
+        <canvas ref={draw} aria-label={label} />
+      )}
+    </AsciiReveal>
   )
 }
 
@@ -92,13 +110,26 @@ export default function App() {
   useEffect(() => {
     if (!img) return
     setBusy(true)
+    let done = false
+    // Rendering happens in a worker, so the skeleton keeps animating until the result lands.
+    // While you edit, a fast Standard-quality draft is shown. Once you stop for a moment the
+    // full-quality render replaces it quietly. A draft is never exported.
+    const draft = p.quality > 1
+    let settle
     const id = setTimeout(() => {
-      const poster = render(img, p, false)
-      const art = render(img, p, true)
-      setRes({ poster, art, crop: cropArt(art) })
-      setBusy(false)
+      renderAsync(img, draft ? { ...p, quality: 1 } : p).then(
+        (out) => {
+          if (done || !out) return
+          setRes({ ...out, draft }); setBusy(false)
+          if (!draft) return
+          settle = setTimeout(() => {
+            renderAsync(img, p).then((full) => { if (!done && full) setRes({ ...full, draft: false }) }, () => {})
+          }, 350)
+        },
+        () => { if (!done) setBusy(false) },
+      )
     }, 80)
-    return () => clearTimeout(id)
+    return () => { done = true; clearTimeout(id); clearTimeout(settle) }
   }, [img, p])
 
   const load = (file) => {
@@ -110,7 +141,7 @@ export default function App() {
   }
 
   const download = async () => {
-    if (!res) return
+    if (!res || res.draft) return
     setSaved(true); setTimeout(() => setSaved(false), 1600)
     const poster = scope === 'poster'
     const base = poster ? 'stampie-poster' : 'stampie-art'
@@ -133,30 +164,13 @@ export default function App() {
 
   return (
     <div className="app">
-      <aside className="panel">
+      <aside className="panel side left">
         <h1>Stampie</h1>
         <p className="s">Turn any image into a wavy engraved line print with a colour blend.</p>
         <label className={'drop' + (over ? ' over' : '')} onDragOver={(e) => { e.preventDefault(); setOver(true) }} onDragLeave={() => setOver(false)} onDrop={(e) => { e.preventDefault(); setOver(false); load(e.dataTransfer.files[0]) }}>
           Tap to choose an image, or drop one here
           <input type="file" accept="image/*" hidden onChange={(e) => load(e.target.files[0])} />
         </label>
-
-        <h2>Palettes<Tip title="Palettes" text="One-click colour sets. They fill in all the colour pickers below, which you can still adjust." /></h2>
-        <div className="pre">
-          {Object.entries(PALETTES).map(([name, c], i) => (
-            <button key={name} className="pal" style={{ '--i': i }} onClick={() => setP((o) => ({ ...o, c1: c[0], c2: c[1], c3: c[2], c4: c[3], c5: c[2] }))}>
-              <span className="dots">{c.map((x) => <i key={x} style={{ background: x }} />)}</span>{name}
-            </button>
-          ))}
-        </div>
-        <div className="cols">
-          <ColorField label="Line shadows" tip="Colour of the thickest, darkest parts of the lines (the shadows in your image)." k="c1" p={p} set={set} />
-          <ColorField label="Line highlights" tip="Colour of the thinnest, lightest parts of the lines (the highlights). Lines blend between this and the shadow colour." k="c2" p={p} set={set} />
-          <ColorField label="Paper" tip="Colour of the paper behind the lines, inside the picture area." k="c3" p={p} set={set} />
-          <ColorField label="Border paper" tip="Colour of the stamp border only. It does not change the art or the tint." k="c5" p={p} set={set} />
-          <ColorField label="Background" tip="Colour behind the whole stamp. It also shows through the perforation holes." k="c4" p={p} set={set} />
-        </div>
-        <Slider label="Photo tint (colour blend)" tip="Fades a colour version of your photo in under the lines. 0 is lines only, higher adds more colour blend." k="tint" p={p} set={set} min={0} max={100} />
 
         <h2>Lines and halftone</h2>
         <Slider label="Line spacing (lower = finer)" tip="Distance between lines. Lower numbers give finer, more detailed lines but take longer to render." k="sp" p={p} set={set} min={1.5} max={14} step={0.5} />
@@ -193,6 +207,61 @@ export default function App() {
           </label>
         </div>
 
+      </aside>
+
+      <main className="stage">
+        <Preview source={res?.poster.canvas} label="Poster preview" busy={busy} ratio={W / H} />
+        <span className="hint">Poster preview ({W}×{H} base size)</span>
+        <h2>Art only (transparent)</h2>
+        <div className="chk-bg"><Preview source={res?.crop} label="Art only" busy={busy} ratio={0.8} art /></div>
+        <span className="hint">The checkerboard is only a preview and is not saved.</span>
+      </main>
+
+      <aside className="panel side right">
+        <h2>Palettes<Tip title="Palettes" text="One-click colour sets. They fill in all the colour pickers below, which you can still adjust." /></h2>
+        <div className="pre">
+          {Object.entries(PALETTES).map(([name, c], i) => (
+            <button key={name} className="pal" style={{ '--i': i }} onClick={() => setP((o) => ({ ...o, c1: c[0], c2: c[1], c3: c[2], c4: c[3], c5: c[2] }))}>
+              <span className="dots">{c.map((x) => <i key={x} style={{ background: x }} />)}</span>{name}
+            </button>
+          ))}
+        </div>
+        <div className="cols">
+          <ColorField label="Line shadows" tip="Colour of the thickest, darkest parts of the lines (the shadows in your image)." k="c1" p={p} set={set} />
+          <ColorField label="Line highlights" tip="Colour of the thinnest, lightest parts of the lines (the highlights). Lines blend between this and the shadow colour." k="c2" p={p} set={set} />
+          <ColorField label="Paper" tip="Colour of the paper behind the lines, inside the picture area." k="c3" p={p} set={set} />
+          <ColorField label="Border paper" tip="Colour of the stamp border only. It does not change the art or the tint." k="c5" p={p} set={set} />
+          <ColorField label="Background" tip="Colour behind the whole stamp. It also shows through the perforation holes." k="c4" p={p} set={set} />
+        </div>
+        <Slider label="Photo tint (colour blend)" tip="Fades a colour version of your photo in under the lines. 0 is lines only, higher adds more colour blend." k="tint" p={p} set={set} min={0} max={100} />
+
+        <h2>Text<Tip title="Text" text="Add a title, value or caption to your stamp. Each layout makes room for the text around the picture, so the art is never covered." /></h2>
+        <div className="opts lay">
+          {Object.entries(LAYOUTS).map(([id, l]) => (
+            <button key={id} className={'opt' + (p.lay === id ? ' on' : '')} aria-pressed={p.lay === id} onClick={() => set('lay', id)}>
+              <Schematic id={id} /><span>{l.label}</span>
+            </button>
+          ))}
+        </div>
+        {p.lay !== 'none' && (
+          <>
+            <div className="opts fnt">
+              {Object.entries(FONTS).map(([id, fo]) => (
+                <button key={id} className={'opt' + (p.fnt === id ? ' on' : '')} aria-pressed={p.fnt === id} onClick={() => set('fnt', id)}>
+                  <b style={{ fontFamily: fo.family, fontWeight: fo.weight, letterSpacing: fo.track + 'em' }}>{fo.upper ? 'AB' : 'Ab'}</b><span>{fo.label}</span>
+                </button>
+              ))}
+            </div>
+            {LAYOUTS[p.lay].fields.map(([k, label]) => (
+              <label className="txt" key={k}><span>{label}</span>
+                <input type="text" value={p[k]} maxLength={40} onChange={(e) => set(k, e.target.value)} />
+              </label>
+            ))}
+            <Slider label="Text size" tip="Scales all the text. The layout makes more or less room around the picture to match." k="tz" p={p} set={set} min={60} max={160} />
+            <div className="cols"><ColorField label="Text colour" tip="Colour of the stamp text." k="tc" p={p} set={set} /></div>
+          </>
+        )}
+
         <h2>Export</h2>
         <label className="chk"><input type="checkbox" checked={p.np} onChange={(e) => set('np', e.target.checked)} /> Transparent paper (lines only)<Tip title="Transparent paper" text="Removes the paper so only the lines are exported, with a see-through background. Works with PNG, WebP and SVG." /></label>
         <div className="cols">
@@ -208,17 +277,8 @@ export default function App() {
             </select>
           </label>
         </div>
-        <button className={'dl' + (saved ? ' ok' : '')} onClick={download} disabled={!res}>{saved ? '✓ Saved' : 'Download'}</button>
+        <button className={'dl' + (saved ? ' ok' : '')} onClick={download} disabled={!res || res.draft}>{saved ? '✓ Saved' : 'Download'}</button>
       </aside>
-
-      <main className="stage">
-        <div className={'bar' + (busy ? ' on' : '')} aria-hidden="true" />
-        {res && <CanvasView source={res.poster.canvas} label="Poster preview" busy={busy} />}
-        <span className="hint">Poster preview ({W}×{H} base size)</span>
-        <h2>Art only (transparent)</h2>
-        <div className="chk-bg">{res && <CanvasView source={res.crop} label="Art only" busy={busy} />}</div>
-        <span className="hint">The checkerboard is only a preview and is not saved.</span>
-      </main>
     </div>
   )
 }

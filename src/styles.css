@@ -2,8 +2,10 @@
 @media (prefers-color-scheme:dark){:root{--bg:#101114;--panel:#1a1b20;--tx:#ececf0;--mut:#9b9ba6;--bd:#2c2d35;--ac:#6b8cff}}
 *{box-sizing:border-box}
 body{margin:0;background:var(--bg);color:var(--tx);font:14px/1.4 system-ui,-apple-system,"Segoe UI",sans-serif}
-.app{display:grid;grid-template-columns:320px 1fr;gap:16px;padding:16px;max-width:1200px;margin:auto}
-@media(max-width:800px){.app{grid-template-columns:1fr}}
+.app{display:grid;grid-template-columns:300px minmax(0,1fr) 300px;gap:16px;padding:16px;max-width:1500px;margin:auto;align-items:start}
+/* Controls sit on both sides and scroll on their own, so the preview stays in view */
+.side{position:sticky;top:16px;max-height:calc(100vh - 32px);overflow-y:auto;scrollbar-width:thin}
+@media(max-width:1100px){.app{grid-template-columns:1fr}.stage{order:-1}.side{position:static;max-height:none;overflow:visible}}
 .panel{background:var(--panel);border:1px solid var(--bd);border-radius:14px;padding:16px;align-self:start}
 h1{font-size:20px;margin:0 0 4px}p.s{color:var(--mut);margin:0 0 14px;font-size:13px}
 h2{font-size:12px;text-transform:uppercase;letter-spacing:.06em;color:var(--mut);margin:16px 0 4px}
@@ -20,10 +22,38 @@ button{font:inherit;border:1px solid var(--bd);background:var(--bg);color:var(--
 button:hover:not(:disabled){border-color:var(--ac)}
 button:disabled{opacity:.5;cursor:default}
 .dl{width:100%;margin-top:6px}
-select{font:inherit;padding:7px;border:1px solid var(--bd);border-radius:8px;background:var(--bg);color:var(--tx);width:100%}
+select{font:inherit;padding: 8px;border:1px solid var(--bd);border-radius:8px;background:var(--bg);color:var(--tx);width:100%}
 .chk{display:flex;gap:8px;align-items:center;margin:10px 0;font-size:13px}
 .stage{background:var(--panel);border:1px solid var(--bd);border-radius:14px;padding:12px;display:flex;flex-direction:column;align-items:center;gap:8px}
-.stage canvas{max-width:100%;max-height:82vh;width:auto;height:auto;border-radius:6px;display:block}
+.stage canvas{max-width:100%;max-height:calc(100vh - 120px);width:auto;height:auto;border-radius:6px;display:block}
 .hint{color:var(--mut);font-size:12px}
 .chk-bg{padding:10px;border-radius:8px;background:repeating-conic-gradient(#8884 0 25%,#fff4 0 50%) 0 0/16px 16px}
 .chk-bg canvas{max-height:50vh}
+
+/* Text layout and font pickers */
+.opts{display:flex;flex-wrap:wrap;gap:6px;margin:6px 0 10px}
+.opt{display:flex;flex-direction:column;align-items:center;gap:3px;padding:6px 4px;font-size:11px;color:var(--mut);flex:1 1 52px;min-width:0;text-align:center;line-height:1.2}
+.opt.on{border-color:var(--ac);color:var(--ac);box-shadow:0 0 0 1px var(--ac)}
+.opt svg .o{fill:none;stroke:currentColor;opacity:.55}
+.opt svg .art{fill:currentColor;opacity:.22}
+.opt svg .bar{fill:currentColor}
+.fnt .opt b{font-size:19px;line-height:1.1;color:var(--tx)}
+.txt{display:flex;flex-direction:column;gap:4px;font-size:12px;color:var(--mut);margin:8px 0}
+.txt input{font:inherit;padding:7px;border:1px solid var(--bd);border-radius:8px;background:var(--bg);color:var(--tx);width:100%}
+.txt input:focus-visible{outline:2px solid var(--ac);outline-offset:1px}
+
+/* Compact side panels so more controls fit on screen */
+.side{padding:14px}
+.side .row{margin:5px 0 0}
+.side h2{margin:12px 0 3px}
+.side input[type=range]{margin:3px 0}
+.side .chk{margin:6px 0}
+.side .cols{margin:4px 0}
+.opts.lay{display:grid;grid-template-columns:repeat(5,1fr);gap:4px}
+.opts.lay .opt{padding:6px 2px;font-size:10px;flex:none}
+
+/* Dropdowns: custom chevron with breathing room from the edge */
+select{appearance:none;-webkit-appearance:none;padding:7px 34px 7px 10px;cursor:pointer;
+  background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath d='M1.5 1.5 6 6l4.5-4.5' fill='none' stroke='%238a8a94' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+  background-repeat:no-repeat;background-position:right 12px center;background-size:12px 8px}
+select:hover,select:focus-visible{background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath d='M1.5 1.5 6 6l4.5-4.5' fill='none' stroke='%236b8cff' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E")}
